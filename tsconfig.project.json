@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM"],
+    "skipLibCheck": true,
+    "outDir": "./dist/streamix",
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "moduleDetection": "force",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "paths": {
+      "@actioncrew/streamix/http": [
+        "./projects/libraries/streamix/http/src/lib/index.ts"
+      ],
+      "@actioncrew/streamix/testing": [
+        "./projects/libraries/streamix/testing/src/lib/index.ts"
+      ],
+      "@actioncrew/streamix/coroutine": [
+        "./projects/libraries/streamix/coroutine/src/lib/index.ts"
+      ],
+      "@actioncrew/streamix": [
+        "./projects/libraries/streamix/src/lib/index.ts"
+      ]
+    }
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,49 @@
+{
+  "name": "@actioncrew/dts-bundler",
+  "description": "DTS Bundler",
+  "version": "1.0.10",
+  "author": "Oleksii Shepel",
+  "files": [
+    "README.md",
+    "LICENSE",
+    "package.json",
+    "bin/",
+    "node_modules/"
+  ],
+  "bugs": {
+    "url": "https://github.com/actioncrew/dts-bundler/issues"
+  },
+  "homepage": "https://github.com/actioncrew/dts-bundler",
+  "license": "MIT",
+  "readme": "README.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/actioncrew/dts-bundler.git"
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "npm run clean && vite build && node build-package.js && npm run copyfiles",
+    "start": "node --import tsx src/config-manager.ts --config dts-bundler.config.json",
+    "copyfiles": "copyfiles README.md LICENSE ./dist/dts-bundler"
+  },
+  "dependencies": {
+    "typescript": "^5.9.2"
+  },
+  "bundleDependencies": [
+    "typescript"
+  ],
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "copyfiles": "^2.4.1",
+    "rimraf": "^6.0.1",
+    "rollup-plugin-copy": "^3.5.0",
+    "rollup-plugin-preserve-shebang": "^1.0.1",
+    "strip-json-comments": "^5.0.3",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "tsx": "^4.20.5",
+    "vite": "^7.1.2",
+    "vite-plugin-dts": "^4.5.4",
+    "vite-tsconfig-paths": "^5.1.4"
+  }
+}
