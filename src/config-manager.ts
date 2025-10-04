@@ -33,6 +33,9 @@ export interface BundlerConfig {
   /** Validate output after bundling */
   validateOutput?: boolean;
   
+  /** Sort statements in bundled output */
+  sortStatements?: boolean;
+  
   /** Custom entry point overrides */
   entryPoints?: {
     [alias: string]: string;
@@ -56,6 +59,7 @@ const DEFAULT_CONFIG: Required<Omit<BundlerConfig, 'entryPoints'>> & { entryPoin
   include: ['**/*.d.ts'],
   verbose: false,
   validateOutput: true,
+  sortStatements: false,
   entryPoints: undefined
 };
 
@@ -78,7 +82,8 @@ export class BundlerConfigManager {
       exclude: DEFAULT_CONFIG.exclude,
       include: DEFAULT_CONFIG.include,
       verbose: DEFAULT_CONFIG.verbose,
-      validateOutput: DEFAULT_CONFIG.validateOutput
+      validateOutput: DEFAULT_CONFIG.validateOutput,
+      sortStatements: DEFAULT_CONFIG.sortStatements
     };
 
     await fs.promises.writeFile(
@@ -254,7 +259,8 @@ export async function main() {
         outputFile,
         includeComments: config.includeComments!,
         banner: config.banner,
-        compilerOptions
+        compilerOptions,
+        sortStatements: config.sortStatements
       };
 
       const bundler = new DTSBundler(options, graph);

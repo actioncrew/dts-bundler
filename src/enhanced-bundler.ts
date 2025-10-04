@@ -11,6 +11,7 @@ interface BundlerOptions {
   banner?: string;
   compilerOptions?: ts.CompilerOptions;
   packageName?: string;
+  sortStatements?: boolean;
 }
 
 interface TypeReference {
@@ -465,9 +466,10 @@ export class DTSBundler {
     };
 
     // Process all relevant source files
+    const statements: Array<{ statement: ts.Statement; text: string; sourceFile: ts.SourceFile }> = [];
+    
     for (const sourceFile of this.program.getSourceFiles()) {
       if (this.shouldProcessFile(sourceFile.fileName)) {
-        let hasDeclarations = false;
         const transformed = ts.transform(sourceFile, [transformer]).transformed[0] as ts.SourceFile;
 
         for (const statement of transformed.statements) {
@@ -498,17 +500,20 @@ export class DTSBundler {
             }
           }
 
-          if (!hasDeclarations) {
-            hasDeclarations = true;
-          }
-          result.push(statementText);
-          result.push('');
-        }
-
-        if (hasDeclarations) {
-          result.push('');
+          statements.push({ statement, text: statementText, sourceFile: transformed });
         }
       }
+    }
+
+    // Sort statements if requested
+    if (this.options.sortStatements) {
+      statements.sort((a, b) => this.compareStatements(a.statement, b.statement));
+    }
+
+    // Add sorted statements to result
+    for (const { text } of statements) {
+      result.push(text);
+      result.push('');
     }
 
     return result.join('\n');
@@ -566,5 +571,74 @@ export class DTSBundler {
     }
 
     return false;
+  }
+
+  private compareStatements(a: ts.Statement, b: ts.Statement): number {
+    const orderA = this.getStatementOrder(a);
+    const orderB = this.getStatementOrder(b);
+
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+
+    // Within the same category, sort alphabetically by name
+    const nameA = this.getStatementName(a);
+    const nameB = this.getStatementName(b);
+    return nameA.localeCompare(nameB);
+  }
+
+  private getStatementOrder(statement: ts.Statement): number {
+    // Define sorting order:
+    // 1. Type aliases
+    // 2. Interfaces
+    // 3. Enums
+    // 4. Classes
+    // 5. Functions
+    // 6. Variables
+    // 7. Namespaces/Modules
+    // 8. Export declarations
+    // 9. Everything else
+
+    if (ts.isTypeAliasDeclaration(statement)) return 1;
+    if (ts.isInterfaceDeclaration(statement)) return 2;
+    if (ts.isEnumDeclaration(statement)) return 3;
+    if (ts.isClassDeclaration(statement)) return 4;
+    if (ts.isFunctionDeclaration(statement)) return 5;
+    if (ts.isVariableStatement(statement)) return 6;
+    if (ts.isModuleDeclaration(statement)) return 7;
+    if (ts.isExportDeclaration(statement)) return 8;
+    return 9;
+  }
+
+  private getStatementName(statement: ts.Statement): string {
+    if (ts.isTypeAliasDeclaration(statement) ||
+        ts.isInterfaceDeclaration(statement) ||
+        ts.isEnumDeclaration(statement) ||
+        ts.isClassDeclaration(statement) ||
+        ts.isFunctionDeclaration(statement)) {
+      return statement.name?.text || '';
+    }
+
+    if (ts.isVariableStatement(statement)) {
+      const declaration = statement.declarationList.declarations[0];
+      if (declaration && ts.isIdentifier(declaration.name)) {
+        return declaration.name.text;
+      }
+    }
+
+    if (ts.isModuleDeclaration(statement)) {
+      if (statement.name && ts.isIdentifier(statement.name)) {
+        return statement.name.text;
+      }
+    }
+
+    if (ts.isExportDeclaration(statement)) {
+      if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+        const names = statement.exportClause.elements.map(e => e.name.text).sort();
+        return names[0] || '';
+      }
+    }
+
+    return '';
   }
 }
