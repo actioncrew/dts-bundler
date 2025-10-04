@@ -74,7 +74,7 @@ export class BundlerConfigManager {
     const initialConfig: BundlerConfig = {
       tsconfig: DEFAULT_CONFIG.tsconfig,
       includeComments: DEFAULT_CONFIG.includeComments,
-      banner: `/**\n *TypeScript Declaration Bundles\n *\n */`,
+      banner: ``,
       exclude: DEFAULT_CONFIG.exclude,
       include: DEFAULT_CONFIG.include,
       verbose: DEFAULT_CONFIG.verbose,

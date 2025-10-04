@@ -1,7 +1,7 @@
 {
   "name": "@actioncrew/dts-bundler",
   "description": "DTS Bundler",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "author": "Oleksii Shepel",
   "files": [
     "README.md",

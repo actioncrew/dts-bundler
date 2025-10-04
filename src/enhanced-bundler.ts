@@ -31,6 +31,9 @@ export class DTSBundler {
   private processingStack = new Set<string>();
   private resolvedTypes = new Map<string, ts.Declaration>();
   private externalImports = new Set<string>();
+  private reexportedSymbols = new Set<string>(); // Track symbols that are re-exported
+  private reexportedModules = new Set<string>(); // Track modules that have re-exports
+  private usedImports = new Map<string, Set<string>>(); // Track which symbols are actually used from each module
   
   constructor(private options: BundlerOptions, private graph: DependencyGraph) {
     this.options.baseDir = this.options.baseDir || path.dirname(this.options.entryPoint);
@@ -103,6 +106,24 @@ export class DTSBundler {
     this.processingStack.add(sourceFile.fileName);
 
     ts.forEachChild(sourceFile, (node) => {
+      // Collect imports first to track what's being used
+      if (ts.isImportDeclaration(node) && node.importClause) {
+        const moduleSpecifier = node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) ?
+          node.moduleSpecifier.text : '';
+        
+        if (moduleSpecifier && !this.isSamePackage(moduleSpecifier)) {
+          // Track named imports
+          if (node.importClause.namedBindings && ts.isNamedImports(node.importClause.namedBindings)) {
+            for (const element of node.importClause.namedBindings.elements) {
+              if (!this.usedImports.has(moduleSpecifier)) {
+                this.usedImports.set(moduleSpecifier, new Set());
+              }
+              this.usedImports.get(moduleSpecifier)!.add(element.name.text);
+            }
+          }
+        }
+      }
+      
       // Collect exports
       if (ts.isExportDeclaration(node)) {
         this.processExportDeclaration(node);
@@ -224,6 +245,17 @@ export class DTSBundler {
     if (node.exportClause && ts.isNamedExports(node.exportClause)) {
       for (const element of node.exportClause.elements) {
         this.exportedSymbols.add(element.name.text);
+        
+        // Track re-exported symbols from external modules
+        if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+          const moduleSpecifier = node.moduleSpecifier.text;
+          const isExternal = !this.isSamePackage(moduleSpecifier);
+          
+          if (isExternal) {
+            this.reexportedSymbols.add(element.name.text);
+            this.reexportedModules.add(moduleSpecifier);
+          }
+        }
       }
       if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
         const moduleSpecifier = node.moduleSpecifier.text;
@@ -232,8 +264,8 @@ export class DTSBundler {
         if (isExternal) {
           this.externalImports.add(moduleSpecifier);
         } else {
+          const modulePath = this.resolveModulePath(moduleSpecifier, node.getSourceFile().fileName);
           const sourceFile = this.program.getSourceFiles().find(f => f.fileName === modulePath);
-          const modulePath = this.resolveModulePath(moduleSpecifier, sourceFile!.fileName);
           if (sourceFile && this.shouldProcessFile(sourceFile.fileName)) {
             this.processFileForExportsAndReferences(sourceFile);
           }
@@ -315,9 +347,13 @@ export class DTSBundler {
       result.push('');
     }
 
-    // Add external imports at the top
-    if (this.externalImports.size > 0) {
-      Array.from(this.externalImports).sort().forEach(importPath => {
+    // Add external imports at the top (only for modules not already re-exported)
+    const namespaceImports = Array.from(this.externalImports)
+      .filter(imp => !this.reexportedModules.has(imp))
+      .sort();
+    
+    if (namespaceImports.length > 0) {
+      namespaceImports.forEach(importPath => {
         result.push(`import type * as ${this.getImportAlias(importPath)} from '${importPath}';`);
       });
       result.push('');
@@ -326,6 +362,27 @@ export class DTSBundler {
     const interImports = new Map<string, Set<string>>();
     const declaredSymbols = this.graph.getExportsForEntry(this.options.entryPoint);
 
+    // First, add used imports from external modules
+    for (const [moduleSpecifier, symbols] of this.usedImports) {
+      const symbolsToImport = new Set<string>();
+      
+      for (const sym of symbols) {
+        // Only import if it's used (not just re-exported)
+        // A symbol is "used" if it appears in imports but is not ONLY in re-exports
+        const isOnlyReexported = this.reexportedSymbols.has(sym) && 
+                                 !this.isSymbolUsedInDeclarations(sym);
+        
+        if (!isOnlyReexported) {
+          symbolsToImport.add(sym);
+        }
+      }
+      
+      if (symbolsToImport.size > 0) {
+        interImports.set(moduleSpecifier, symbolsToImport);
+      }
+    }
+
+    // Then add imports from graph (inter-package dependencies)
     for (const [specifier, symbols] of this.graph.getImportedTypes(this.options.entryPoint) || []) {
       const resolvedEntry = this.graph.resolveSpecifierToEntry(specifier, this.options.entryPoint);
 
@@ -336,6 +393,11 @@ export class DTSBundler {
 
       // Include symbols from other entries or external packages
       for (const sym of symbols) {
+        // Skip symbols that are already re-exported (they'll be in export statements)
+        if (this.reexportedSymbols.has(sym)) {
+          continue;
+        }
+        
         if (!declaredSymbols.has(sym)) {
           if (!interImports.has(specifier)) interImports.set(specifier, new Set());
           interImports.get(specifier)!.add(sym);
@@ -458,5 +520,51 @@ export class DTSBundler {
       .replace(/[^a-zA-Z0-9]/g, '_')
       .replace(/^_+/, '')
       .replace(/_+/g, '_') || 'external';
+  }
+
+  private isSymbolUsedInDeclarations(symbolName: string): boolean {
+    // Check if the symbol is actually used in type declarations (not just re-exported)
+    for (const sourceFile of this.program.getSourceFiles()) {
+      if (!this.shouldProcessFile(sourceFile.fileName)) continue;
+
+      let isUsed = false;
+      const visit = (node: ts.Node): void => {
+        // Skip export declarations - we're looking for usage, not re-exports
+        if (ts.isExportDeclaration(node)) {
+          return;
+        }
+
+        // Check if this is a type reference to our symbol
+        if (ts.isTypeReferenceNode(node)) {
+          const typeName = ts.isIdentifier(node.typeName) 
+            ? node.typeName.text 
+            : ts.isQualifiedName(node.typeName) 
+            ? node.typeName.right.text 
+            : '';
+          
+          if (typeName === symbolName) {
+            isUsed = true;
+            return;
+          }
+        }
+
+        // Check other places where the symbol might be used
+        if (ts.isIdentifier(node) && node.text === symbolName) {
+          // Make sure it's not part of an export declaration
+          const parent = node.parent;
+          if (!parent || !ts.isExportSpecifier(parent)) {
+            isUsed = true;
+            return;
+          }
+        }
+
+        ts.forEachChild(node, visit);
+      };
+
+      ts.forEachChild(sourceFile, visit);
+      if (isUsed) return true;
+    }
+
+    return false;
   }
 }
